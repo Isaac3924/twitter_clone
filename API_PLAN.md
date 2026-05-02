@@ -1,5 +1,5 @@
 Authentication & Users:
-  POST /api/v1/auth/register (Handled mostly by Firebase, but registers the user in my PostgreSQL DB)
+  POST /api/v1/users (Handled mostly by Firebase, but registers the user in my PostgreSQL DB)
   GET /api/v1/users/{user_id} (Retrieves profile and bio)
   PATCH /api/v1/users/{user_id} (Update/Change bio, screen name, etc.)
   DELETE /api/v1/users/{user_id} (Delete user)

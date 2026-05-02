@@ -11,7 +11,7 @@ class UserCreate(BaseModel):
   screen_name: str
   name: str
 
-@router.post("/api/v1/auth/register", status_code=201)
+@router.post("/api/v1/users", status_code=201)
 def create_user(user: UserCreate):
   #1. Open the DB connection
   conn = get_db_connection()
