@@ -1,6 +1,7 @@
 from fastapi import APIRouter , HTTPException
 from pydantic import BaseModel
 from database import get_db_connection
+import psycopg2 
 
 #Create a router for all tweet-related endpoints
 router = APIRouter()
@@ -78,6 +79,45 @@ def get_tweet(tweet_id: int):
     }
 
   except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+#Small Pydantic model to accept the user_id of the person liking the tweet
+class LikeCreate(BaseModel):
+  user_id: str
+
+@router.post("/api/v1/tweets/{tweet_id}/like", status_code=201)
+def like_tweet(tweet_id: int, like_data: LikeCreate):
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #Attempt to insert the like.
+    cursor.execute(
+      """
+      INSERT INTO Likes (user_id, tweet_id)
+      VALUES (%s, %s);
+      """,
+      (like_data.user_id, tweet_id)
+    )
+    conn.commit()
+    return {"message": "Tweet liked successfully"}
+  
+  except psycopg2.errors.UniqueViolation:
+    #Catches the error PostgreSQL throws if tweet was already liked
+    conn.rollback()
+    raise HTTPException(status_code=400, detail="You already liked this tweet")
+  
+  except psycopg2.errors.ForeignKeyViolation:
+    #Catches if the tweet_id or user_id don't exist in the DB
+    conn.rollback()
+    raise HTTPException(status_code=404, detail="Tweet or user not found")
+  
+  except Exception as e:
+    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
