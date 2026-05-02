@@ -2,16 +2,17 @@ from fastapi import APIRouter , HTTPException
 from pydantic import BaseModel
 from database import get_db_connection
 
-#Create a router for all tweet-related endpoints
+#Create a router for all user-related endpoints
 router = APIRouter()
 
 #Define the data expected from the user
-class TweetCreate(BaseModel):
-  user_id: str
-  body: str
+class UserCreate(BaseModel):
+  user_id: str #This will come from Firebase
+  screen_name: str
+  name: str
 
-@router.post("/api/v1/tweets", status_code=201)
-def create_tweet(tweet: TweetCreate):
+@router.post("/api/v1/auth/register", status_code=201)
+def create_user(user: UserCreate):
   #1. Open the DB connection
   conn = get_db_connection()
   cursor = conn.cursor()
@@ -21,20 +22,20 @@ def create_tweet(tweet: TweetCreate):
     #We use %s to safely inject the variables to prevent SQL injection hacks.
     cursor.execute(
       """
-      INSERT INTO Tweets (user_id, body)
-      VALUES (%s, %s)
-      RETURNING tweet_id;
+      INSERT INTO Users (user_id, screen_name, name)
+      VALUES (%s, %s, %s)
+      RETURNING user_id;
       """,
-      (tweet.user_id, tweet.body)
+      (user.user_id, user.screen_name, user.name)
     )
 
     #3. Fetch the ID of the newly created tweet
-    new_tweet_id = cursor.fetchone()[0]
+    new_user_id = cursor.fetchone()[0]
 
     #4. Commit the save to the db
     conn.commit()
 
-    return {"message": "Tweet created successfully", "tweet_id": new_tweet_id}
+    return {"message": "User created successfully", "user_id": new_user_id}
   
   except Exception as e:
     #If anything goes wrong, undo the db transaction
@@ -47,8 +48,8 @@ def create_tweet(tweet: TweetCreate):
     cursor.close()
     conn.close()
 
-@router.get("/api/v1/tweets/{tweet_id}", status_code=200)
-def get_tweet(tweet_id: int):
+@router.get("/api/v1/users/{user_id}", status_code=200)
+def get_user(user_id: str):
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -56,25 +57,26 @@ def get_tweet(tweet_id: int):
     #Fetch the specific tweet using the ID from the URL
     cursor.execute(
       """
-      SELECT tweet_id, user_id, body, created_at
-      FROM Tweets
-      WHERE tweet_id = %s;
+      SELECT user_id, screen_name, name, bio, created_at
+      FROM Users
+      WHERE user_id = %s;
       """,
-      (tweet_id,) #Pass the ID securely
+      (user_id,) #Pass the ID securely
     )
 
-    tweet = cursor.fetchone()
+    user = cursor.fetchone()
 
     #If the query returns nothing, return a 404 error
-    if not tweet:
-      raise HTTPException(status_code=404, detail="Tweet not found")
+    if not user:
+      raise HTTPException(status_code=404, detail="User not found")
     
     #Map the returned db tuple back into a readable JSON dict
     return {
-      "tweet_id": tweet[0],
-      "user_id": tweet[1],
-      "body": tweet[2],
-      "created_at": tweet[3]
+      "user_id": user[0],
+      "screen_name": user[1],
+      "name": user[2],
+      "bio": user[3],
+      "created_at": user[4]
     }
 
   except Exception as e:
