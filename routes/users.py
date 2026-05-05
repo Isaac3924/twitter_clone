@@ -1,6 +1,7 @@
 from fastapi import APIRouter , HTTPException
 from pydantic import BaseModel
 from database import get_db_connection
+import psycopg2
 
 #Create a router for all user-related endpoints
 router = APIRouter()
@@ -80,6 +81,49 @@ def get_user(user_id: str):
     }
 
   except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+#Pydantic model for the person initiating the follow
+class FollowCreate(BaseModel):
+  follower_id: str
+
+@router.post("/api/v1/users/{target_user_id}/follow", status_code=201)
+def follow_user(target_user_id: str, follow_data: FollowCreate):
+  #1. Logic Check: Prevent self-following
+  if target_user_id == follow_data.follower_id:
+    raise HTTPException(status_code=400, detail="You cannot follow yourself")
+  
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #2. Insert the relationship
+    cursor.execute(
+      """
+      INSERT INTO Follows (follower_id, followee_id)
+      VALUES (%s, %s);
+      """,
+      (follow_data.follower_id, target_user_id)
+    )
+    conn.commit()
+    return {f"message": "Successfully followed user {target_user_id}"}
+  
+  except psycopg2.errors.UniqueViolation:
+    #Caught if they click follow twice
+    conn.rollback()
+    raise HTTPException(status_code=400, detail="You are already following this user")
+  
+  except psycopg2.errors.ForeignKeyViolation:
+    #Catches if the follower or the target doesn't exist
+    conn.rollback()
+    raise HTTPException(status_code=404, detail="One or both users do not exist")
+  
+  except Exception as e:
+    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
