@@ -129,3 +129,55 @@ def follow_user(target_user_id: str, follow_data: FollowCreate):
   finally:
     cursor.close()
     conn.close()
+
+@router.get("/api/v1/users/{user_id}/feed", status_code=200)
+def get_user_feed(user_id: str):
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #JOIN query
+    cursor.execute(
+      """
+      SELECT
+        t.tweet_id,
+        t.body,
+        t.created_at,
+        u.user_id,
+        u.screen_name
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+      WHERE t.user_id = %s -- 1. Get the user's own tweets
+      OR t.user_id IN ( -- 2. OR get tweets from people they follow
+        SELECT followee_id
+        FROM Follows
+        WHERE follower_id = %s
+      )
+      ORDER BY t.created_at DESC -- 3. Sort chronologically (newest first)
+      LIMIT 50; -- 4. Limit the amount of tweets to ensure a ludicrous amount doesn't crash the server
+      """,
+      (user_id, user_id) #ID is passed twice to satisfy both condition in WHERE clause
+    )
+
+    #fetchall is used here since we expect multiple rows back
+    raw_tweets = cursor.fetchall()
+
+    #Map list of db tuples into a clean JSON array
+    feed = []
+    for tweet in raw_tweets:
+      feed.append({
+        "tweet_id": tweet[0],
+        "body": tweet[1],
+        "created_at": tweet[2],
+        "author_id": tweet[3],
+        "author_screen_name": tweet[4]
+      })
+
+    return {"feed": feed}
+    
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
