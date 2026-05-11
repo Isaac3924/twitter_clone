@@ -11,6 +11,9 @@ class TweetCreate(BaseModel):
   user_id: str
   body: str
 
+class TweetAction(BaseModel):
+  user_id: str
+
 @router.post("/api/v1/tweets", status_code=201)
 def create_tweet(tweet: TweetCreate):
   #1. Open the DB connection
@@ -115,6 +118,61 @@ def like_tweet(tweet_id: int, like_data: LikeCreate):
     #Catches if the tweet_id or user_id don't exist in the DB
     conn.rollback()
     raise HTTPException(status_code=404, detail="Tweet or user not found")
+  
+  except Exception as e:
+    conn.rollback()
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.delete("/api/v1/tweets/{tweet_id}", status_code=204)
+def delete_tweet(tweet_id: int, action_data: TweetAction):
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #Require BOTH the tweet ID & the author's ID to match
+    cursor.execute(
+      """
+      DELETE FROM Tweets
+      WHERE tweet_id = %s AND user_id = %s;
+      """,
+      (tweet_id, action_data.user_id)
+    )
+
+    #If no rows were updated, the tweet couldn't be found
+    if cursor.rowcount == 0:
+      conn.rollback()
+      raise HTTPException(status_code=404, detail=f"Tweet not found, or lacking permissions to delete")
+    
+    conn.commit()
+    return
+  
+  except Exception as e:
+    conn.rollback()
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.delete("/api/v1/tweets/{tweet_id}/like", status_code=204)
+def unlike_tweet(tweet_id: int, action_data: TweetAction):
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      DELETE FROM Likes
+      WHERE tweet_id = %s AND user_id = %s;
+      """,
+      (tweet_id, action_data.user_id)
+    )
+    conn.commit()
+    return
   
   except Exception as e:
     conn.rollback()

@@ -12,6 +12,12 @@ class UserCreate(BaseModel):
   screen_name: str
   name: str
 
+class UserUpdate(BaseModel):
+  bio: str
+
+class UnfollowCreate(BaseModel):
+  follower_id: str
+
 @router.post("/api/v1/users", status_code=201)
 def create_user(user: UserCreate):
   #1. Open the DB connection
@@ -110,7 +116,7 @@ def follow_user(target_user_id: str, follow_data: FollowCreate):
       (follow_data.follower_id, target_user_id)
     )
     conn.commit()
-    return {f"message": "Successfully followed user {target_user_id}"}
+    return {"message": f"Successfully followed user {target_user_id}"}
   
   except psycopg2.errors.UniqueViolation:
     #Caught if they click follow twice
@@ -176,6 +182,63 @@ def get_user_feed(user_id: str):
     return {"feed": feed}
     
   except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.patch("/api/v1/users/{user_id}", status_code=200)
+def update_user_bio(user_id: str, update_data: UserUpdate):
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      UPDATE Users
+      SET bio = %s
+      WHERE user_id = %s;
+      """,
+      (update_data.bio, user_id)
+    )
+
+    #If no rows were updated, the user doesn't exist
+    if cursor.rowcount == 0:
+      raise HTTPException(status_code=404, detail=f"User not found")
+    
+    conn.commit()
+    return {"message": "Profile updated successfully"}
+  
+  except Exception as e:
+    conn.rollback()
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.delete("/api/v1/users/{target_user_id}/follow", status_code=204)
+def unfollow_user(target_user_id: str, unfollow_data: UnfollowCreate):  
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      DELETE FROM Follows
+      WHERE follower_id = %s AND followee_id = %s;
+      """,
+      (unfollow_data.follower_id, target_user_id)
+    )
+    conn.commit()
+
+    #A 204 status code (No Content) usually doesn't return a JSON body,
+    #but the client will know it succeeded.
+    return
+  
+  except Exception as e:
+    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
