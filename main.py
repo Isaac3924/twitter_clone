@@ -10,7 +10,7 @@ app.include_router(users.router)
 
 #Add CORS middleware to allow frontend to connect with the backend
 app.add_middleware(
-  CORSMiddleware
+  CORSMiddleware,
   #Allow any origin to connect for now
   #When in production with a real domain, will set it to the website URL
   allow_origins=["*"],
