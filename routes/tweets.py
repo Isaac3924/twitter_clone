@@ -1,4 +1,5 @@
-from fastapi import APIRouter , HTTPException
+from fastapi import APIRouter , HTTPException, Depends
+from auth import verify_user
 from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2 
@@ -8,20 +9,19 @@ router = APIRouter()
 
 #Define the data expected from the user
 class TweetCreate(BaseModel):
-  user_id: str
   body: str
 
-class TweetAction(BaseModel):
-  user_id: str
-
 @router.post("/api/v1/tweets", status_code=201)
-def create_tweet(tweet: TweetCreate):
-  #1. Open the DB connection
+def create_tweet(tweet: TweetCreate, user_token: dict = Depends(verify_user)):
+  #Extract the mathematically verified user ID from the token
+  real_user_id = user_token.get("uid")
+
+  #Open the DB connection
   conn = get_db_connection()
   cursor = conn.cursor()
 
   try:
-    #2. Execute the raw SQL.
+    #Execute the raw SQL.
     #We use %s to safely inject the variables to prevent SQL injection hacks.
     cursor.execute(
       """
@@ -29,16 +29,16 @@ def create_tweet(tweet: TweetCreate):
       VALUES (%s, %s)
       RETURNING tweet_id;
       """,
-      (tweet.user_id, tweet.body)
+      (real_user_id, tweet.body)
     )
 
-    #3. Fetch the ID of the newly created tweet
+    #Fetch the ID of the newly created tweet
     new_tweet_id = cursor.fetchone()[0]
 
-    #4. Commit the save to the db
+    #Commit the save to the db
     conn.commit()
 
-    return {"message": "Tweet created successfully", "tweet_id": new_tweet_id}
+    return {"tweet_id": new_tweet_id, "message": "Tweet created successfully"}
   
   except Exception as e:
     #If anything goes wrong, undo the db transaction
@@ -46,7 +46,7 @@ def create_tweet(tweet: TweetCreate):
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
-    #5. Always close the connection when finished
+    #Always close the connection when finished
 
     cursor.close()
     conn.close()
@@ -88,12 +88,11 @@ def get_tweet(tweet_id: int):
     cursor.close()
     conn.close()
 
-#Small Pydantic model to accept the user_id of the person liking the tweet
-class LikeCreate(BaseModel):
-  user_id: str
-
 @router.post("/api/v1/tweets/{tweet_id}/like", status_code=201)
-def like_tweet(tweet_id: int, like_data: LikeCreate):
+def like_tweet(tweet_id: int, user_token: dict = Depends(verify_user)):
+
+  real_user_id = user_token.get("uid")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -104,7 +103,7 @@ def like_tweet(tweet_id: int, like_data: LikeCreate):
       INSERT INTO Likes (user_id, tweet_id)
       VALUES (%s, %s);
       """,
-      (like_data.user_id, tweet_id)
+      (real_user_id, tweet_id)
     )
     conn.commit()
     return {"message": "Tweet liked successfully"}
@@ -128,7 +127,10 @@ def like_tweet(tweet_id: int, like_data: LikeCreate):
     conn.close()
 
 @router.delete("/api/v1/tweets/{tweet_id}", status_code=204)
-def delete_tweet(tweet_id: int, action_data: TweetAction):
+def delete_tweet(tweet_id: int, user_token: dict = Depends(verify_user)):
+
+  real_user_id = user_token.get("uid")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -139,7 +141,7 @@ def delete_tweet(tweet_id: int, action_data: TweetAction):
       DELETE FROM Tweets
       WHERE tweet_id = %s AND user_id = %s;
       """,
-      (tweet_id, action_data.user_id)
+      (tweet_id, real_user_id)
     )
 
     #If no rows were updated, the tweet couldn't be found
@@ -159,7 +161,10 @@ def delete_tweet(tweet_id: int, action_data: TweetAction):
     conn.close()
 
 @router.delete("/api/v1/tweets/{tweet_id}/like", status_code=204)
-def unlike_tweet(tweet_id: int, action_data: TweetAction):
+def unlike_tweet(tweet_id: int, user_token: dict = Depends(verify_user)):
+
+  real_user_id = user_token.get("uid")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -169,7 +174,7 @@ def unlike_tweet(tweet_id: int, action_data: TweetAction):
       DELETE FROM Likes
       WHERE tweet_id = %s AND user_id = %s;
       """,
-      (tweet_id, action_data.user_id)
+      (tweet_id, real_user_id)
     )
     conn.commit()
     return

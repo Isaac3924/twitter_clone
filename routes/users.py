@@ -1,25 +1,24 @@
-from fastapi import APIRouter , HTTPException
+from fastapi import APIRouter , HTTPException, Depends
 from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2
+from auth import verify_user
 
 #Create a router for all user-related endpoints
 router = APIRouter()
 
 #Define the data expected from the user
 class UserCreate(BaseModel):
-  user_id: str #This will come from Firebase
   screen_name: str
   name: str
 
 class UserUpdate(BaseModel):
   bio: str
 
-class UnfollowCreate(BaseModel):
-  follower_id: str
-
 @router.post("/api/v1/users", status_code=201)
-def create_user(user: UserCreate):
+def create_user(user: UserCreate, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+
   #1. Open the DB connection
   conn = get_db_connection()
   cursor = conn.cursor()
@@ -33,7 +32,7 @@ def create_user(user: UserCreate):
       VALUES (%s, %s, %s)
       RETURNING user_id;
       """,
-      (user.user_id, user.screen_name, user.name)
+      (real_user_id, user.screen_name, user.name)
     )
 
     #3. Fetch the ID of the newly created tweet
@@ -93,12 +92,10 @@ def get_user(user_id: str):
     cursor.close()
     conn.close()
 
-#Pydantic model for the person initiating the follow
-class FollowCreate(BaseModel):
-  follower_id: str
-
 @router.post("/api/v1/users/{target_user_id}/follow", status_code=201)
-def follow_user(target_user_id: str, follow_data: FollowCreate):
+def follow_user(target_user_id: str, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+  
   #1. Logic Check: Prevent self-following
   if target_user_id == follow_data.follower_id:
     raise HTTPException(status_code=400, detail="You cannot follow yourself")
@@ -113,7 +110,7 @@ def follow_user(target_user_id: str, follow_data: FollowCreate):
       INSERT INTO Follows (follower_id, followee_id)
       VALUES (%s, %s);
       """,
-      (follow_data.follower_id, target_user_id)
+      (real_user_id, target_user_id)
     )
     conn.commit()
     return {"message": f"Successfully followed user {target_user_id}"}
@@ -137,7 +134,9 @@ def follow_user(target_user_id: str, follow_data: FollowCreate):
     conn.close()
 
 @router.get("/api/v1/users/{user_id}/feed", status_code=200)
-def get_user_feed(user_id: str):
+def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -162,7 +161,7 @@ def get_user_feed(user_id: str):
       ORDER BY t.created_at DESC -- 3. Sort chronologically (newest first)
       LIMIT 50; -- 4. Limit the amount of tweets to ensure a ludicrous amount doesn't crash the server
       """,
-      (user_id, user_id) #ID is passed twice to satisfy both condition in WHERE clause
+      (real_user_id, real_user_id) #ID is passed twice to satisfy both condition in WHERE clause
     )
 
     #fetchall is used here since we expect multiple rows back
@@ -189,7 +188,13 @@ def get_user_feed(user_id: str):
     conn.close()
 
 @router.patch("/api/v1/users/{user_id}", status_code=200)
-def update_user_bio(user_id: str, update_data: UserUpdate):
+def update_user_bio(user_id: str, update_data: UserUpdate, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+
+  #Security check: You can only edit your own bio
+  if user_id != real_user_id:
+    raise HTTPException(status_code=403, detail="You do not have permission to edit this profile")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -200,7 +205,7 @@ def update_user_bio(user_id: str, update_data: UserUpdate):
       SET bio = %s
       WHERE user_id = %s;
       """,
-      (update_data.bio, user_id)
+      (update_data.bio, real_user_id)
     )
 
     #If no rows were updated, the user doesn't exist
@@ -219,7 +224,9 @@ def update_user_bio(user_id: str, update_data: UserUpdate):
     conn.close()
 
 @router.delete("/api/v1/users/{target_user_id}/follow", status_code=204)
-def unfollow_user(target_user_id: str, unfollow_data: UnfollowCreate):  
+def unfollow_user(target_user_id: str, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -229,7 +236,7 @@ def unfollow_user(target_user_id: str, unfollow_data: UnfollowCreate):
       DELETE FROM Follows
       WHERE follower_id = %s AND followee_id = %s;
       """,
-      (unfollow_data.follower_id, target_user_id)
+      (real_user_id, target_user_id)
     )
     conn.commit()
 
