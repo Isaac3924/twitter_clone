@@ -97,7 +97,7 @@ def follow_user(target_user_id: str, user_token: dict = Depends(verify_user)):
   real_user_id = user_token.get("uid")
   
   #1. Logic Check: Prevent self-following
-  if target_user_id == follow_data.follower_id:
+  if target_user_id == real_user_id:
     raise HTTPException(status_code=400, detail="You cannot follow yourself")
   
   conn = get_db_connection()
