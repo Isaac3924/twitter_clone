@@ -68,6 +68,7 @@ def search_users(q: str):
   try:
     #Use ILIKE for case-snesitive partial matching.
     #Wrap the query in % to match the text anywhere in the string.
+    search_pattern = f"%{q}%"
 
     cursor.execute(
       """
