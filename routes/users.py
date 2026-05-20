@@ -54,6 +54,51 @@ def create_user(user: UserCreate, user_token: dict = Depends(verify_user)):
     cursor.close()
     conn.close()
 
+@router.get("/api/v1/users/search/query", status_code=200)
+def search_users(q: str):
+  """Searches for users by screen_name or name."""
+
+  #Requires att least 2 characters to prevent massive database dumps
+  if len(q) < 2:
+    return {"results": []}
+  
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #Use ILIKE for case-snesitive partial matching.
+    #Wrap the query in % to match the text anywhere in the string.
+
+    cursor.execute(
+      """
+      SELECT user_id, screen_name, name, bio
+      FROM users
+      WHERE screen_name ILIKE %s OR name ILIKE %s
+      LIMIT 20;
+      """,
+      (search_pattern, search_pattern)
+    )
+
+    raw_users = cursor.fetchall()
+
+    results = []
+    for user in raw_users:
+      results.append({
+        "user_id": user[0],
+        "screen_name": user[1],
+        "name": user[2],
+        "bio": user[3]
+      })
+
+      return {"results": results}
+    
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
 @router.get("/api/v1/users/{user_id}", status_code=200)
 def get_user(user_id: str):
   conn = get_db_connection()
