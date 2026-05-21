@@ -297,3 +297,48 @@ def unfollow_user(target_user_id: str, user_token: dict = Depends(verify_user)):
   finally:
     cursor.close()
     conn.close()
+
+@router.get("/api/v1/users/{target_user_id}/tweets", status_code=200)
+def get_user_profile_tweets(target_user_id: str):
+  """Fetches the 50 most recent tweets for a single specific user"""
+
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      SELECT
+          t.tweet_id,
+          t.body,
+          t.created_at,
+          u.user_id,
+          u.screen_name
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+      WHERE t.user_id = %s
+      ORDER BY t.created_at DESC
+      LIMIT 50;
+      """,
+      (target_user_id,)
+    )
+
+    raw_tweets = cursor.fetchall()
+
+    tweets = []
+    for tweet in raw_tweets:
+      tweets.append({
+        "tweet_id": tweet[0],
+        "body": tweet[1],
+        "created_at": tweet[2],
+        "author_id": tweet[3],
+        "author_screen_name": tweet[4]
+      })
+
+      return {"tweets": tweets}
+    
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  finally:
+    cursor.close()
+    conn.close()
