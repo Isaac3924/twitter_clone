@@ -186,3 +186,47 @@ def unlike_tweet(tweet_id: int, user_token: dict = Depends(verify_user)):
   finally:
     cursor.close()
     conn.close()
+
+@router.get("/api/v1/tweets/explore", status_code=200)
+def get_explore_feed():
+  """Fetches the 50 most recent tweets globally."""
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      SELECT 
+        t.tweet_id, 
+        t.body, 
+        t.created_at,
+        u.user_id,
+        u.screen_name
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+      ORDER BY t.created_at DESC
+      LIMIT 50;
+      """,
+    )
+
+    raw_tweets = cursor.fetchall()
+
+    feed = []
+
+    for tweet in raw_tweets:
+      feed.append({
+        "tweet_id": tweet[0],
+        "body": tweet[1],
+        "created_at": tweet[2],
+        "author_id": tweet[3],
+        "author_screen_name": tweet[4]
+      })
+    
+    return {"feed": feed}
+
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
