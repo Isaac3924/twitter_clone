@@ -356,3 +356,38 @@ def get_user_profile_tweets(target_user_id: str):
   finally:
     cursor.close()
     conn.close()
+
+@router.get("/api/v1/users/{target_user_id}/is_following", status_code=200)
+def get_user_is_following(target_user_id: str, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+  
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #Look for following relationship using the two ids.
+    #We will just have it return a '1' as there is no need for actual data to be returned
+    cursor.execute(
+      """
+      SELECT 1
+      FROM Follows
+      WHERE follower_id = %s AND followee_id = %s
+      VALUES (%s, %s);
+      """,
+      (real_user_id, target_user_id)
+    )
+
+    #If the row exists, result will be (1,). If not, result will be None.
+    result = conn.fetchone()
+
+    #This evaluates to True if result has data, and False if result is None
+    is_following = result is not None
+
+    return {"following": is_following}
+  
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
