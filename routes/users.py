@@ -245,21 +245,25 @@ def update_user_bio(user_id: str, update_data: UserUpdate, user_token: dict = De
   cursor = conn.cursor()
 
   try:
+    #Use RETURNING to grab the newly saved bio to send to React
     cursor.execute(
       """
       UPDATE Users
       SET bio = %s
-      WHERE user_id = %s;
+      WHERE user_id = %s
+      RETURNING bio;
       """,
       (update_data.bio, real_user_id)
     )
 
+    updated_row = cursor.fetchone()
+
     #If no rows were updated, the user doesn't exist
-    if cursor.rowcount == 0:
+    if not updated_row:
       raise HTTPException(status_code=404, detail=f"User not found")
     
     conn.commit()
-    return {"message": "Profile updated successfully"}
+    return {"message": "Profile updated successfully", "bio": updated_row[0]}
   
   except Exception as e:
     conn.rollback()
