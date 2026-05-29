@@ -106,12 +106,19 @@ def get_user(user_id: str):
   cursor = conn.cursor()
 
   try:
-    #Fetch the specific tweet using the ID from the URL
+    #Use 
     cursor.execute(
       """
-      SELECT user_id, screen_name, name, bio, created_at
-      FROM Users
-      WHERE user_id = %s;
+      SELECT 
+        u.user_id, 
+        u.screen_name, 
+        u.name, 
+        u.bio, 
+        u.created_at,
+        (SELECT COUNT(*) FROM Follows WHERE followee_id = u.user_id) AS followers_count,
+        (SELECT COUNT(*) FROM Follows WHERE follower_id = u.user_id) AS following_count
+      FROM Users u
+      WHERE u.user_id = %s;
       """,
       (user_id,) #Pass the ID securely
     )
@@ -128,7 +135,10 @@ def get_user(user_id: str):
       "screen_name": user[1],
       "name": user[2],
       "bio": user[3],
-      "created_at": user[4]
+      "created_at": user[4], 
+      "followers_count": user[5],
+      "following_count": user[6]
+
     }
 
   except Exception as e:
