@@ -91,7 +91,7 @@ def search_users(q: str):
         "bio": user[3]
       })
 
-      return {"results": results}
+    return {"results": results}
     
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -339,7 +339,7 @@ def get_user_profile_tweets(target_user_id: str):
         "author_screen_name": tweet[4]
       })
 
-      return {"tweets": tweets}
+    return {"tweets": tweets}
     
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
