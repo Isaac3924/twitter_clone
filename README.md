@@ -1,6 +1,6 @@
 # Twitter Clone API 🐦
 
-A high-performance, contanierized REST API built to power a modern social media platform. This serves as the backend service for the [Twitter Clone UI](https://github.com/Isaac3924/twitter-clone-ui), handling user authentication bridging, tweet management, and personalized feed generation.
+A high-performance, containerized REST API built to power a modern social media platform. This serves as the backend service for the [Twitter Clone UI](https://github.com/Isaac3924/twitter-clone-ui), handling user authentication bridging, tweet management, and personalized feed generation.
 
 ## 🛠 Tech Stack
 * **Framework:** Python/FastAPI
@@ -45,3 +45,12 @@ The API will be available at `http://127.0.0.1:8000`. You can view the interacti
 
 ## 🐳 Docker Setup (Coming Soon)
 A `Dockerfile` is being implemented to standardize local development and testing environments alongside the production Cloud Run containers.
+
+## ✨ Key Technical Achievements
+* **Relational Data Modeling:** Implemented a many-to-many Follows table to generate personalized, chronological user feeds.
+* **Optimized Queries:** Utilized SQL subqueries and PostgreSQL ```RETURNING``` clauses to bundle user profile data and follower statistics into highly efficient, single-trip API responses.
+
+## 🗺️ Future Roadmap
+* **V1.1 - Interaction Layer:** Implement `POST` and `DELETE` endpoints to support scalable Tweet Liking and Retweeting functionality.
+* **V2.0 - Media Support:** Integrate Google Cloud Storage buckets to hqandle secure, multipart form data uploads for images, GIFs, and videos.
+* **V3.0 - AI Integration:** Leverage the Gemini/Vertex AI API to automatically generate accessible alt-text for uploaded media and provide intelligent feed summaries.
