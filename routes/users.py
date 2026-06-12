@@ -340,7 +340,7 @@ def get_user_profile_tweets(target_user_id: str):
           t.created_at,
           u.user_id,
           u.screen_name,
-          COALESCE(lclike_count, 0) AS like_count,
+          COALESCE(lc.like_count, 0) AS like_count,
           FALSE AS user_has_liked
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
