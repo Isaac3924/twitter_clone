@@ -65,9 +65,16 @@ def get_explore_feed():
         t.body, 
         t.created_at,
         u.user_id,
-        u.screen_name
+        u.screen_name,
+        COALESCE(lc.like_count, 0) AS like_count,
+        FALSE AS user_has_liked
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
+      LEFT JOIN (
+        SELECT tweet_id, COUNT(*) as like_count
+        FROM Likes
+        GROUP BY tweet_id
+      ) lc ON t.tweet_id = lc.tweet_id
       ORDER BY t.created_at DESC
       LIMIT 50;
       """,
@@ -83,7 +90,9 @@ def get_explore_feed():
         "body": tweet[1],
         "created_at": tweet[2],
         "author_id": tweet[3],
-        "author_screen_name": tweet[4]
+        "author_screen_name": tweet[4],
+        "like_count": tweet[5],
+        "user_has_liked": tweet[6]
       })
     
     return {"feed": feed}
