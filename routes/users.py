@@ -2,7 +2,7 @@ from fastapi import APIRouter , HTTPException, Depends
 from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2
-from auth import verify_user
+from auth import verify_user, get_optional_user
 
 #Create a router for all user-related endpoints
 router = APIRouter()
@@ -325,8 +325,11 @@ def unfollow_user(target_user_id: str, user_token: dict = Depends(verify_user)):
     conn.close()
 
 @router.get("/api/v1/users/{target_user_id}/tweets", status_code=200)
-def get_user_profile_tweets(target_user_id: str):
+def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_optional_user)):
   """Fetches the 50 most recent tweets for a single specific user"""
+
+  #If Guest, real_user_id becomes None. If Authenticated, it gets the string ID.
+  real_user_id = user_data.get("uid") if user_data else None
 
   conn = get_db_connection()
   cursor = conn.cursor()
@@ -341,7 +344,10 @@ def get_user_profile_tweets(target_user_id: str):
           u.user_id,
           u.screen_name,
           COALESCE(lc.like_count, 0) AS like_count,
-          FALSE AS user_has_liked
+          EXISTS (
+            SELECT 1 FROM Likes l
+            WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
+          ) AS user_has_liked
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
       LEFT JOIN (
@@ -353,7 +359,7 @@ def get_user_profile_tweets(target_user_id: str):
       ORDER BY t.created_at DESC
       LIMIT 50;
       """,
-      (target_user_id,)
+      (real_user_id, target_user_id,)
     )
 
     raw_tweets = cursor.fetchall()
@@ -379,9 +385,13 @@ def get_user_profile_tweets(target_user_id: str):
     conn.close()
 
 @router.get("/api/v1/users/{target_user_id}/is_following", status_code=200)
-def get_user_is_following(target_user_id: str, user_token: dict = Depends(verify_user)):
-  real_user_id = user_token.get("uid")
+def get_user_is_following(target_user_id: str, user_data: dict = Depends(get_optional_user)):
+  #1. Fast-fail for Guests
+  if not user_data:
+    return {"following": False}
   
+  #2. Proceed normally for logged-in users
+  real_user_id = user_data.get("uid")
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -392,8 +402,7 @@ def get_user_is_following(target_user_id: str, user_token: dict = Depends(verify
       """
       SELECT 1
       FROM Follows
-      WHERE follower_id = %s AND followee_id = %s
-      VALUES (%s, %s);
+      WHERE follower_id = %s AND followee_id = %s;
       """,
       (real_user_id, target_user_id)
     )

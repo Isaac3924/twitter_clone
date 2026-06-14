@@ -1,5 +1,5 @@
 from fastapi import APIRouter , HTTPException, Depends
-from auth import verify_user
+from auth import verify_user, get_optional_user
 from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2 
@@ -52,8 +52,10 @@ def create_tweet(tweet: TweetCreate, user_token: dict = Depends(verify_user)):
     conn.close()
 
 @router.get("/api/v1/tweets/explore", status_code=200)
-def get_explore_feed():
+def get_explore_feed(user_data: dict = Depends(get_optional_user)):
   """Fetches the 50 most recent tweets globally."""
+  real_user_id = user_data.get("uid") if user_data else None
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
@@ -67,7 +69,10 @@ def get_explore_feed():
         u.user_id,
         u.screen_name,
         COALESCE(lc.like_count, 0) AS like_count,
-        FALSE AS user_has_liked
+        EXISTS (
+          SELECT 1 FROM Likes l
+          WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
+        ) AS user_has_liked
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
       LEFT JOIN (
@@ -78,6 +83,7 @@ def get_explore_feed():
       ORDER BY t.created_at DESC
       LIMIT 50;
       """,
+      (real_user_id,)
     )
 
     raw_tweets = cursor.fetchall()
