@@ -107,7 +107,7 @@ def retweet(tweet_id: int, user_token: dict = Depends(verify_user)):
 def un_retweet(tweet_id: int, user_token: dict = Depends(verify_user)):
   real_user_id = user_token.get("uid")
 
-  conn = get_db_connection
+  conn = get_db_connection()
   cursor = conn.cursor()
 
   try:
@@ -115,7 +115,7 @@ def un_retweet(tweet_id: int, user_token: dict = Depends(verify_user)):
     cursor.execute(
       """
       DELETE FROM Tweets
-      WHERE user_id = %s AND parent_tweets_id = %s AND is_retweet = TRUE;
+      WHERE user_id = %s AND parent_tweet_id = %s AND is_retweet = TRUE;
       """,
       (real_user_id, tweet_id)
     )
