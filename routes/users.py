@@ -201,23 +201,28 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
     cursor.execute(
       """
       SELECT
-        t.tweet_id,
-        t.body,
+        t.tweet_id AS feed_id,
+        COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
+        COALESCE(orig_t.body, t.body) AS body,
         t.created_at,
-        u.user_id,
-        u.screen_name,
+        COALESCE(orig_u.user_id, u.user_id) AS author_id,
+        COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
         COALESCE(lc.like_count, 0) AS like_count,
         EXISTS (
           SELECT 1 FROM Likes l
-          WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
-        ) AS user_has_liked
+          WHERE l.tweet_id = COALESCE(orig_t.tweet_id, t.tweet_id) AND l.user_id = %s
+        ) AS user_has_liked,
+        t.is_retweet,
+        u.screen_name AS retweeter_name
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
+      LEFT JOIN Tweets orig_t ON t.parent_tweet_id = orig_t.tweet_id
+      LEFT JOIN Users orig_u ON orig_t.user_id = orig_u.user_id
       LEFT JOIN (
         SELECT tweet_id, COUNT(*) as like_count
         FROM Likes
         GROUP BY tweet_id
-      ) lc ON t.tweet_id = lc.tweet_id
+      ) lc ON COALESCE(orig_t.tweet_id, t.tweet_id) = lc.tweet_id
       WHERE t.user_id = %s -- 1. Get the user's own tweets
       OR t.user_id IN ( -- 2. OR get tweets from people they follow
         SELECT followee_id
@@ -237,13 +242,16 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
     feed = []
     for tweet in raw_tweets:
       feed.append({
-        "tweet_id": tweet[0],
-        "body": tweet[1],
-        "created_at": tweet[2],
-        "author_id": tweet[3],
-        "author_screen_name": tweet[4],
-        "like_count": tweet[5],
-        "user_has_liked": tweet[6]
+        "feed_id": tweet[0],  
+        "tweet_id": tweet[1],
+        "body": tweet[2],
+        "created_at": tweet[3],
+        "author_id": tweet[4],
+        "author_screen_name": tweet[5],
+        "like_count": tweet[6],
+        "user_has_liked": tweet[7],
+        "is_retweet": tweet[8],
+        "retweeter_name": tweet[9]
       })
 
     return {"feed": feed}
@@ -338,23 +346,28 @@ def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_o
     cursor.execute(
       """
       SELECT
-          t.tweet_id,
-          t.body,
-          t.created_at,
-          u.user_id,
-          u.screen_name,
-          COALESCE(lc.like_count, 0) AS like_count,
-          EXISTS (
-            SELECT 1 FROM Likes l
-            WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
-          ) AS user_has_liked
+        t.tweet_id AS feed_id,
+        COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
+        COALESCE(orig_t.body, t.body) AS body,
+        t.created_at,
+        COALESCE(orig_u.user_id, u.user_id) AS author_id,
+        COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
+        COALESCE(lc.like_count, 0) AS like_count,
+        EXISTS (
+          SELECT 1 FROM Likes l
+          WHERE l.tweet_id = COALESCE(orig_t.tweet_id, t.tweet_id) AND l.user_id = %s
+        ) AS user_has_liked,
+        t.is_retweet,
+        u.screen_name AS retweeter_name
       FROM Tweets t
       JOIN Users u ON t.user_id = u.user_id
+      LEFT JOIN Tweets orig_t ON t.parent_tweet_id = orig_t.tweet_id
+      LEFT JOIN Users orig_u ON orig_t.user_id = orig_u.user_id
       LEFT JOIN (
         SELECT tweet_id, COUNT(*) as like_count
         FROM Likes
         GROUP BY tweet_id
-      ) lc ON t.tweet_id = lc.tweet_id
+      ) lc ON COALESCE(orig_t.tweet_id, t.tweet_id) = lc.tweet_id
       WHERE t.user_id = %s
       ORDER BY t.created_at DESC
       LIMIT 50;
@@ -367,13 +380,16 @@ def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_o
     tweets = []
     for tweet in raw_tweets:
       tweets.append({
-        "tweet_id": tweet[0],
-        "body": tweet[1],
-        "created_at": tweet[2],
-        "author_id": tweet[3],
-        "author_screen_name": tweet[4],
-        "like_count": tweet[5],
-        "user_has_liked": tweet[6]
+        "feed_id": tweet[0],  
+        "tweet_id": tweet[1],
+        "body": tweet[2],
+        "created_at": tweet[3],
+        "author_id": tweet[4],
+        "author_screen_name": tweet[5],
+        "like_count": tweet[6],
+        "user_has_liked": tweet[7],
+        "is_retweet": tweet[8],
+        "retweeter_name": tweet[9]
       })
 
     return {"tweets": tweets}
