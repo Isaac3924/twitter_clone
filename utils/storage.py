@@ -9,7 +9,7 @@ storage_client = storage.Client()
 BUCKET_NAME = os.getenv("MEDIA_BUCKET_NAME")
 
 # --- SECURITY LIMITS ---
-MAX_FILE_SIZE = 5 * 1024 * 1024
+MAX_FILE_SIZE = 10 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"]
 
 def upload_file_to_gcs(file: UploadFile) -> str:
