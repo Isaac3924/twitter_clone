@@ -1,20 +1,25 @@
-from fastapi import APIRouter , HTTPException, Depends
+from fastapi import APIRouter , HTTPException, Depends, Form, File, UploadFile
+from typing import Optional
 from auth import verify_user, get_optional_user
-from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2 
+from utils.storage import upload_file_to_gcs
 
 #Create a router for all tweet-related endpoints
 router = APIRouter()
 
-#Define the data expected from the user
-class TweetCreate(BaseModel):
-  body: str
-
 @router.post("/api/v1/tweets", status_code=201)
-def create_tweet(tweet: TweetCreate, user_token: dict = Depends(verify_user)):
+def create_tweet(body: Optional[str] = Form(None), media: Optional[UploadFile] = File(None), user_token: dict = Depends(verify_user)):
   #Extract the mathematically verified user ID from the token
   real_user_id = user_token.get("uid")
+
+  #Require at leasst text or media to make a valid tweet
+  if not body and not media:
+    raise HTTPException(status_code=400, detail="Tweet must contain text or an image/video.")
+  
+  media_url = None
+  if media:
+    media_url = upload_file_to_gcs(media)
 
   #Open the DB connection
   conn = get_db_connection()
@@ -25,11 +30,11 @@ def create_tweet(tweet: TweetCreate, user_token: dict = Depends(verify_user)):
     #We use %s to safely inject the variables to prevent SQL injection hacks.
     cursor.execute(
       """
-      INSERT INTO Tweets (user_id, body)
-      VALUES (%s, %s)
+      INSERT INTO Tweets (user_id, body, media_url)
+      VALUES (%s, %s, %s)
       RETURNING tweet_id;
       """,
-      (real_user_id, tweet.body)
+      (real_user_id, body, media_url)
     )
 
     #Fetch the ID of the newly created tweet
@@ -38,7 +43,7 @@ def create_tweet(tweet: TweetCreate, user_token: dict = Depends(verify_user)):
     #Commit the save to the db
     conn.commit()
 
-    return {"tweet_id": new_tweet_id, "message": "Tweet created successfully"}
+    return {"tweet_id": new_tweet_id, "message": "Tweet created successfully", "media_url": media_url}
   
   except Exception as e:
     #If anything goes wrong, undo the db transaction
@@ -143,24 +148,28 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
     cursor.execute(
       """
       SELECT 
-        --1. Main ID for React keys, and the interaction ID for liking/retweeting
+        -- Main ID for React keys, and the interaction ID for liking/retweeting
         t.tweet_id AS feed_id,
         COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
 
-        -- 2. Grab the body and author from the original tweet IF it's a retweet
+        -- Grab the body and author from the original tweet IF it's a retweet
         COALESCE(orig_t.body, t.body) AS body,
+
+        -- Grab the media URL, routing back to original if it's a retweet
+        COALESCE(orig_t.media_url, t.media_url) AS media_url,
+
         t.created_at,
         COALESCE(orig_u.user_id, u.user_id) AS author_id,
         COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
 
-        -- 3. Route the like counting to the original source material
+        -- Route the like counting to the original source material
         COALESCE(lc.like_count, 0) AS like_count,
         EXISTS (
           SELECT 1 FROM Likes l
           WHERE l.tweet_id = COALESCE(orig_t.tweet_id, t.tweet_id) AND l.user_id = %s
         ) AS user_has_liked,
 
-        -- 4. Retweet metadata so React can show the "User Retweeted" label
+        -- Retweet metadata so React can show the "User Retweeted" label
         t.is_retweet,
         u.screen_name AS retweeter_name
 
@@ -191,13 +200,14 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
         "feed_id": tweet[0],              #Used purely for React's key={}
         "tweet_id": tweet[1],             #Used for hitting our Like/Retweet endpoints
         "body": tweet[2],
-        "created_at": tweet[3],
-        "author_id": tweet[4],
-        "author_screen_name": tweet[5],
-        "like_count": tweet[6],
-        "user_has_liked": tweet[7],
-        "is_retweet": tweet[8],
-        "retweeter_name": tweet[9]
+        "media_url": tweet[3],
+        "created_at": tweet[4],
+        "author_id": tweet[5],
+        "author_screen_name": tweet[6],
+        "like_count": tweet[7],
+        "user_has_liked": tweet[8],
+        "is_retweet": tweet[9],
+        "retweeter_name": tweet[10]
       })
     
     return {"feed": feed}
@@ -218,7 +228,7 @@ def get_tweet(tweet_id: int):
     #Fetch the specific tweet using the ID from the URL
     cursor.execute(
       """
-      SELECT tweet_id, user_id, body, created_at
+      SELECT tweet_id, user_id, body, media_url, created_at
       FROM Tweets
       WHERE tweet_id = %s;
       """,
@@ -236,7 +246,8 @@ def get_tweet(tweet_id: int):
       "tweet_id": tweet[0],
       "user_id": tweet[1],
       "body": tweet[2],
-      "created_at": tweet[3]
+      "media_url": tweet[3],
+      "created_at": tweet[4]
     }
 
   except Exception as e:
