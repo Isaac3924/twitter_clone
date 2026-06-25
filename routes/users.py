@@ -204,6 +204,7 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
         t.tweet_id AS feed_id,
         COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
         COALESCE(orig_t.body, t.body) AS body,
+        COALESCE(orig_t.media_url, t.media_url) AS media_url,
         t.created_at,
         COALESCE(orig_u.user_id, u.user_id) AS author_id,
         COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
@@ -245,13 +246,14 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
         "feed_id": tweet[0],  
         "tweet_id": tweet[1],
         "body": tweet[2],
-        "created_at": tweet[3],
-        "author_id": tweet[4],
-        "author_screen_name": tweet[5],
-        "like_count": tweet[6],
-        "user_has_liked": tweet[7],
-        "is_retweet": tweet[8],
-        "retweeter_name": tweet[9]
+        "media_url": tweet[3],
+        "created_at": tweet[4],
+        "author_id": tweet[5],
+        "author_screen_name": tweet[6],
+        "like_count": tweet[7],
+        "user_has_liked": tweet[8],
+        "is_retweet": tweet[9],
+        "retweeter_name": tweet[10]
       })
 
     return {"feed": feed}
@@ -349,6 +351,7 @@ def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_o
         t.tweet_id AS feed_id,
         COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
         COALESCE(orig_t.body, t.body) AS body,
+        COALESCE(orig_t.media_url, t.media_url) AS media_url,
         t.created_at,
         COALESCE(orig_u.user_id, u.user_id) AS author_id,
         COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
@@ -383,13 +386,14 @@ def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_o
         "feed_id": tweet[0],  
         "tweet_id": tweet[1],
         "body": tweet[2],
-        "created_at": tweet[3],
-        "author_id": tweet[4],
-        "author_screen_name": tweet[5],
-        "like_count": tweet[6],
-        "user_has_liked": tweet[7],
-        "is_retweet": tweet[8],
-        "retweeter_name": tweet[9]
+        "media_url": tweet[3],
+        "created_at": tweet[4],
+        "author_id": tweet[5],
+        "author_screen_name": tweet[6],
+        "like_count": tweet[7],
+        "user_has_liked": tweet[8],
+        "is_retweet": tweet[9],
+        "retweeter_name": tweet[10]
       })
 
     return {"tweets": tweets}
@@ -424,7 +428,7 @@ def get_user_is_following(target_user_id: str, user_data: dict = Depends(get_opt
     )
 
     #If the row exists, result will be (1,). If not, result will be None.
-    result = conn.fetchone()
+    result = cursor.fetchone()
 
     #This evaluates to True if result has data, and False if result is None
     is_following = result is not None
