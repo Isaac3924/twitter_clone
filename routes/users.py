@@ -1,8 +1,9 @@
-from fastapi import APIRouter , HTTPException, Depends
+from fastapi import APIRouter , HTTPException, Depends, File, UploadFile
 from pydantic import BaseModel
 from database import get_db_connection
 import psycopg2
 from auth import verify_user, get_optional_user
+from utils.storage import upload_file_to_gcs
 
 #Create a router for all user-related endpoints
 router = APIRouter()
@@ -72,7 +73,7 @@ def search_users(q: str):
 
     cursor.execute(
       """
-      SELECT user_id, screen_name, name, bio
+      SELECT user_id, screen_name, name, bio, profile_img_url
       FROM users
       WHERE screen_name ILIKE %s OR name ILIKE %s
       LIMIT 20;
@@ -88,7 +89,8 @@ def search_users(q: str):
         "user_id": user[0],
         "screen_name": user[1],
         "name": user[2],
-        "bio": user[3]
+        "bio": user[3],
+        "profile_img_url": user[4]
       })
 
     return {"results": results}
@@ -116,7 +118,8 @@ def get_user(user_id: str):
         u.bio, 
         u.created_at,
         (SELECT COUNT(*) FROM Follows WHERE followee_id = u.user_id) AS followers_count,
-        (SELECT COUNT(*) FROM Follows WHERE follower_id = u.user_id) AS following_count
+        (SELECT COUNT(*) FROM Follows WHERE follower_id = u.user_id) AS following_count,
+        u.profile_img_url
       FROM Users u
       WHERE u.user_id = %s;
       """,
@@ -137,7 +140,8 @@ def get_user(user_id: str):
       "bio": user[3],
       "created_at": user[4], 
       "followers_count": user[5],
-      "following_count": user[6]
+      "following_count": user[6],
+      "profile_img_url": user[7]
 
     }
 
@@ -436,6 +440,63 @@ def get_user_is_following(target_user_id: str, user_data: dict = Depends(get_opt
     return {"following": is_following}
   
   except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.patch("/api/v1/users/profile-image", status_code=200)
+def update_profile_image(
+  file: UploadFile = File(...),
+  user_token: dict = Depends(verify_user)
+):
+  real_user_id = user_token.get("uid")
+
+  #Security Check: 10 MB File Limit
+  MAX_SIZE =  10 * 1024 * 1024
+  file.file.seek(0, 2)
+  file_size = file.file.tell()
+  file.file.seek(0)
+
+  if file_size > MAX_SIZE:
+    raise HTTPException(status_code=413, detail="File too large. MAximum size is 10MB.")
+  
+  #Upload to GCS
+  try:
+    new_image_url = upload_file_to_gcs(file)
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Failed to upload image to cloud storage: {str(e)}")
+  
+  #Save the new URL to the Neon Database
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      UPDATE Users
+      SET profile_img_url = %s
+      WHERE user_id = %s
+      RETURNING profile_image_url;
+      """,
+      (new_image_url, real_user_id)
+    )
+
+    updated_row = cursor.fetchone()
+
+    if not updated_row:
+      raise HTTPException(status_code=404, detail="User not found")
+    
+    conn.commit()
+
+    return {
+      "message": "Profile image updated successfully",
+      "profile_img_url": updated_row[0]
+    }
+  
+  except Exception as e:
+    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
