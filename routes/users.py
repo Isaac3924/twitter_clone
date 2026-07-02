@@ -269,6 +269,63 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
     cursor.close()
     conn.close()
 
+@router.patch("/api/v1/users/profile-image", status_code=200)
+def update_profile_image(
+  file: UploadFile = File(...),
+  user_token: dict = Depends(verify_user)
+):
+  real_user_id = user_token.get("uid")
+
+  #Security Check: 10 MB File Limit
+  MAX_SIZE =  10 * 1024 * 1024
+  file.file.seek(0, 2)
+  file_size = file.file.tell()
+  file.file.seek(0)
+
+  if file_size > MAX_SIZE:
+    raise HTTPException(status_code=413, detail="File too large. MAximum size is 10MB.")
+  
+  #Upload to GCS
+  try:
+    new_image_url = upload_file_to_gcs(file)
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Failed to upload image to cloud storage: {str(e)}")
+  
+  #Save the new URL to the Neon Database
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    cursor.execute(
+      """
+      UPDATE Users
+      SET profile_img_url = %s
+      WHERE user_id = %s
+      RETURNING profile_img_url;
+      """,
+      (new_image_url, real_user_id)
+    )
+
+    updated_row = cursor.fetchone()
+
+    if not updated_row:
+      raise HTTPException(status_code=404, detail="User not found")
+    
+    conn.commit()
+
+    return {
+      "message": "Profile image updated successfully",
+      "profile_img_url": updated_row[0]
+    }
+  
+  except Exception as e:
+    conn.rollback()
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
 @router.patch("/api/v1/users/{user_id}", status_code=200)
 def update_user_bio(user_id: str, update_data: UserUpdate, user_token: dict = Depends(verify_user)):
   real_user_id = user_token.get("uid")
@@ -440,63 +497,6 @@ def get_user_is_following(target_user_id: str, user_data: dict = Depends(get_opt
     return {"following": is_following}
   
   except Exception as e:
-    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-  
-  finally:
-    cursor.close()
-    conn.close()
-
-@router.patch("/api/v1/users/profile-image", status_code=200)
-def update_profile_image(
-  file: UploadFile = File(...),
-  user_token: dict = Depends(verify_user)
-):
-  real_user_id = user_token.get("uid")
-
-  #Security Check: 10 MB File Limit
-  MAX_SIZE =  10 * 1024 * 1024
-  file.file.seek(0, 2)
-  file_size = file.file.tell()
-  file.file.seek(0)
-
-  if file_size > MAX_SIZE:
-    raise HTTPException(status_code=413, detail="File too large. MAximum size is 10MB.")
-  
-  #Upload to GCS
-  try:
-    new_image_url = upload_file_to_gcs(file)
-  except Exception as e:
-    raise HTTPException(status_code=500, detail=f"Failed to upload image to cloud storage: {str(e)}")
-  
-  #Save the new URL to the Neon Database
-  conn = get_db_connection()
-  cursor = conn.cursor()
-
-  try:
-    cursor.execute(
-      """
-      UPDATE Users
-      SET profile_img_url = %s
-      WHERE user_id = %s
-      RETURNING profile_image_url;
-      """,
-      (new_image_url, real_user_id)
-    )
-
-    updated_row = cursor.fetchone()
-
-    if not updated_row:
-      raise HTTPException(status_code=404, detail="User not found")
-    
-    conn.commit()
-
-    return {
-      "message": "Profile image updated successfully",
-      "profile_img_url": updated_row[0]
-    }
-  
-  except Exception as e:
-    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
