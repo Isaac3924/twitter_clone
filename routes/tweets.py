@@ -4,9 +4,14 @@ from auth import verify_user, get_optional_user
 from database import get_db_connection
 import psycopg2 
 from utils.storage import upload_file_to_gcs
+from pydantic import BaseModel
 
 #Create a router for all tweet-related endpoints
 router = APIRouter()
+
+#Define the expected JSON payload for a reply
+class ReplyCreate(BaseModel):
+  body: str
 
 @router.post("/api/v1/tweets", status_code=201)
 def create_tweet(body: Optional[str] = Form(None), media: Optional[UploadFile] = File(None), user_token: dict = Depends(verify_user)):
@@ -220,37 +225,148 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
     conn.close()
 
 @router.get("/api/v1/tweets/{tweet_id}", status_code=200)
-def get_tweet(tweet_id: int):
+def get_tweet_thread(tweet_id: int, user_data: dict = Depends(get_optional_user)):
+  """Fetches a single main tweet and all of its direct replies."""
+  real_user_id = user_data.get("uid") if user_data else None
+
   conn = get_db_connection()
   cursor = conn.cursor()
 
   try:
-    #Fetch the specific tweet using the ID from the URL
+    #Fetch the main tweet
     cursor.execute(
       """
-      SELECT tweet_id, user_id, body, media_url, created_at
-      FROM Tweets
-      WHERE tweet_id = %s;
+      SELECT 
+        t.tweet_id AS feed_id,
+        t.tweet_id AS interactable_tweet_id,
+        t.body, 
+        t.media_url, 
+        t.created_at,
+        u.user_id AS author_id,
+        u.screen_name AS author_screen_name,
+        COALESCE(lc.like_count, 0) AS like_count,
+        EXISTS (
+          SELECT 1 FROM Likes l
+          WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
+        ) AS user_has_liked,
+        False AS is_retweet,
+        NULL AS retweeter_name
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+      LEFT JOIN (
+        SELECT tweet_id, COUNT(*) as like_count
+        FROM Likes
+        GROUP BY tweet_id
+      ) lc ON t.tweet_id = lc.tweet_id
+      WHERE t.tweet_id = %s;
       """,
-      (tweet_id,) #Pass the ID securely
+      (real_user_id, tweet_id)
     )
 
-    tweet = cursor.fetchone()
+    raw_main = cursor.fetchone()
 
     #If the query returns nothing, return a 404 error
-    if not tweet:
+    if not raw_main:
       raise HTTPException(status_code=404, detail="Tweet not found")
     
     #Map the returned db tuple back into a readable JSON dict
-    return {
-      "tweet_id": tweet[0],
-      "user_id": tweet[1],
-      "body": tweet[2],
-      "media_url": tweet[3],
-      "created_at": tweet[4]
+    main_tweet = {
+      "feed_id": raw_main[0],
+      "tweet_id": raw_main[1],
+      "body": raw_main[2],
+      "media_url": raw_main[3],
+      "created_at": raw_main[4],
+      "author_id": raw_main[5],
+      "author_screen_name": raw_main[6],
+      "like_count": raw_main[7],
+      "user_has_liked": raw_main[8],
+      "is_retweet": raw_main[9],
+      "retweeter_name": raw_main[10],
     }
 
+    #Fetch the replies chronologically
+    cursor.execute(
+      """
+      SELECT 
+        t.tweet_id AS feed_id,
+        t.tweet_id AS interactable_tweet_id,
+        t.body, 
+        t.media_url, 
+        t.created_at,
+        u.user_id AS author_id,
+        u.screen_name AS author_screen_name,
+        COALESCE(lc.like_count, 0) AS like_count,
+        EXISTS (
+          SELECT 1 FROM Likes l
+          WHERE l.tweet_id = t.tweet_id AND l.user_id = %s
+        ) AS user_has_liked,
+        False AS is_retweet,
+        NULL AS retweeter_name
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+      LEFT JOIN (
+        SELECT tweet_id, COUNT(*) as like_count
+        FROM Likes
+        GROUP BY tweet_id
+      ) lc ON t.tweet_id = lc.tweet_id
+      WHERE t.parent_tweet_id = %s
+        AND (t.is_retweet IS FALSE OR t.is_retweet IS NULL)
+      ORDER BY t.created_at ASC;
+      """,
+      (real_user_id, tweet_id)
+    )
+
+    raw_replies = cursor.fetchall()
+
+    replies = []
+    for tweet in raw_replies:
+      replies.append({
+        "feed_id": tweet[0],
+        "tweet_id": tweet[1],
+        "body": tweet[2],
+        "media_url": tweet[3],
+        "created_at": tweet[4],
+        "author_id": tweet[5],
+        "author_screen_name": tweet[6],
+        "like_count": tweet[7],
+        "user_has_liked": tweet[8],
+        "is_retweet": tweet[9],
+        "retweeter_name": tweet[10],
+      })
+
+    return {"main_tweet": main_tweet, "replies": replies}
+
   except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.post("/api/v1/tweets/{tweet_id}/reply", status_code=201)
+def create_reply(tweet_id: int, reply: ReplyCreate, user_token: dict = Depends(verify_user)):
+  real_user_id = user_token.get("uid")
+
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #Insert the tweet nd link it to its parent tweet
+    cursor.execute(
+      """
+      INSERT INTO Tweets (user_id, body, parent_tweet_id)
+      VALUES (%s, %s, %s)
+      RETURNING tweet_id;
+      """,
+      (real_user_id, reply.body, tweet_id)
+    )
+    new_tweet_id = cursor.fetchone()[0]
+    conn.commit()
+
+    return {"message": "Replay posted succesfully", "tweet_id": new_tweet_id}
+  
+  except Exception as e:
+    conn.rollback()
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
