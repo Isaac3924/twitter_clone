@@ -234,6 +234,9 @@ def get_user_feed(user_id: str, user_token: dict = Depends(verify_user)):
         FROM Follows
         WHERE follower_id = %s
       )
+      -- Only fetch original tweets OR explicit retweets (ignore replies)
+      AND (t.parent_tweet_id IS NULL OR t.is_retweet = TRUE)
+
       ORDER BY t.created_at DESC -- 3. Sort chronologically (newest first)
       LIMIT 50; -- 4. Limit the amount of tweets to ensure a ludicrous amount doesn't crash the server
       """,
@@ -433,6 +436,10 @@ def get_user_profile_tweets(target_user_id: str, user_data: dict = Depends(get_o
         GROUP BY tweet_id
       ) lc ON COALESCE(orig_t.tweet_id, t.tweet_id) = lc.tweet_id
       WHERE t.user_id = %s
+
+      -- Only fetch original tweets OR explicit retweets (ignore replies)
+      AND (t.parent_tweet_id IS NULL OR t.is_retweet = TRUE)
+
       ORDER BY t.created_at DESC
       LIMIT 50;
       """,
