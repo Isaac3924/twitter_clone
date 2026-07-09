@@ -191,6 +191,9 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
         GROUP BY tweet_id
       ) lc ON COALESCE(orig_t.tweet_id, t.tweet_id) = lc.tweet_id
 
+      -- Only fetch original tweets OR explicit retweets (ignore replies)
+      WHERE t.parent_tweet_id IS NULL OR t.is_retweet = TRUE
+
       ORDER BY t.created_at DESC
       LIMIT 50;
       """,
