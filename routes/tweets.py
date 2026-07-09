@@ -9,10 +9,6 @@ from pydantic import BaseModel
 #Create a router for all tweet-related endpoints
 router = APIRouter()
 
-#Define the expected JSON payload for a reply
-class ReplyCreate(BaseModel):
-  body: str
-
 @router.post("/api/v1/tweets", status_code=201)
 def create_tweet(body: Optional[str] = Form(None), media: Optional[UploadFile] = File(None), user_token: dict = Depends(verify_user)):
   #Extract the mathematically verified user ID from the token
@@ -347,8 +343,16 @@ def get_tweet_thread(tweet_id: int, user_data: dict = Depends(get_optional_user)
     conn.close()
 
 @router.post("/api/v1/tweets/{tweet_id}/reply", status_code=201)
-def create_reply(tweet_id: int, reply: ReplyCreate, user_token: dict = Depends(verify_user)):
+def create_reply(tweet_id: int, body: Optional[str] = Form(None), media: Optional[UploadFile] = File(None), user_token: dict = Depends(verify_user)):
   real_user_id = user_token.get("uid")
+
+  #Require at leasst text or media to make a valid tweet
+  if not body and not media:
+    raise HTTPException(status_code=400, detail="Reply must contain text or an image/video.")
+  
+  media_url = None
+  if media:
+    media_url = upload_file_to_gcs(media)
 
   conn = get_db_connection()
   cursor = conn.cursor()
@@ -357,16 +361,16 @@ def create_reply(tweet_id: int, reply: ReplyCreate, user_token: dict = Depends(v
     #Insert the tweet nd link it to its parent tweet
     cursor.execute(
       """
-      INSERT INTO Tweets (user_id, body, parent_tweet_id)
-      VALUES (%s, %s, %s)
+      INSERT INTO Tweets (user_id, body, media_url, parent_tweet_id)
+      VALUES (%s, %s, %s, %s)
       RETURNING tweet_id;
       """,
-      (real_user_id, reply.body, tweet_id)
+      (real_user_id, body, media_url, tweet_id)
     )
     new_tweet_id = cursor.fetchone()[0]
     conn.commit()
 
-    return {"message": "Replay posted succesfully", "tweet_id": new_tweet_id}
+    return {"message": "Replay posted succesfully", "media_url": media_url, "tweet_id": new_tweet_id}
   
   except Exception as e:
     conn.rollback()
