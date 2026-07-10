@@ -5,9 +5,54 @@ from database import get_db_connection
 import psycopg2 
 from utils.storage import upload_file_to_gcs
 from pydantic import BaseModel
+import re
 
 #Create a router for all tweet-related endpoints
 router = APIRouter()
+
+#Regex hashtag helper function
+def extract_and_save_hashtags(cursor, tweet_id: int, body: str):
+  """
+  Parses a tweet body for hashtags, inserts unique tags into the Hashtags table,
+  and maps them to the tweet in the Tweet_hashtags junction table.
+  """
+  if not body:
+    return
+  
+  #Find all words starting with #.
+  #.lower() ensures we do not receive duplicates.
+  #The regex r"#(\w+)" grabs just the word without the '#' symbol.
+  tags = re.findall(r"#(\w+)", body.lower())
+
+  #Convert to a 'set' to instantly remove any duplicates within the same tweet
+  #(e.g., if a user types "#coding #coding")
+  unique_tags = set(tags)
+
+  for tag in unique_tags:
+    #Insert the tag. If it already exists, Postgres normally throws an error.
+    #By adding On CONFLICT DO UPDATE, it forces Postgres to safely ignore the conflict
+    #but still return the tag_id to use
+    cursor.execute(
+      """
+      INSERT INTO hashtags (tag_text)
+      VALUES (%s)
+      ON CONFLICT (tag_text) DO UPDATE
+      SET tag_text = EXCLUDED.tag_text
+      RETURNING tag_id;
+      """,
+      (tag,)
+    )
+    tag_id = cursor.fetchone()[0]
+
+    #Insert the mapping into the Junction Table
+    cursor.execute(
+      """
+      INSERT INTO tweet_hashtags (tweet_id, tag_id)
+      VALUES(%s, %s)
+      ON CONFLICT DO NOTHING;
+      """,
+      (tweet_id, tag_id)
+    )
 
 @router.post("/api/v1/tweets", status_code=201)
 def create_tweet(body: Optional[str] = Form(None), media: Optional[UploadFile] = File(None), user_token: dict = Depends(verify_user)):
@@ -40,6 +85,9 @@ def create_tweet(body: Optional[str] = Form(None), media: Optional[UploadFile] =
 
     #Fetch the ID of the newly created tweet
     new_tweet_id = cursor.fetchone()[0]
+
+    #Extract and save hashtags using the same cursor
+    extract_and_save_hashtags(cursor, new_tweet_id, body)
 
     #Commit the save to the db
     conn.commit()
@@ -368,6 +416,10 @@ def create_reply(tweet_id: int, body: Optional[str] = Form(None), media: Optiona
       (real_user_id, body, media_url, tweet_id)
     )
     new_tweet_id = cursor.fetchone()[0]
+
+    #Extract and save hashtags for replies
+    extract_and_save_hashtags(cursor, new_tweet_id, body)
+
     conn.commit()
 
     return {"message": "Replay posted succesfully", "media_url": media_url, "tweet_id": new_tweet_id}
