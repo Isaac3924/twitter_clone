@@ -271,6 +271,141 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
     cursor.close()
     conn.close()
 
+@router.get("/api/v1/tweets/search", status_code=200)
+def search_tweets(q: str, user_data: dict = Depends(get_optional_user)):
+  """Searches for tweets by hashtag using the optimized junction tables"""
+  real_user_id = user_data.get("uid") if user_data else None
+  
+  #Clean the query: Remove the '#' if the user typed it, and make it lowercase
+  clean_q = q.replace("#", "").lower()
+
+  #Requires at least 2 characters to prevent massive database dumps
+  if len(clean_q) < 2:
+    return {"results": []}
+
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    search_pattern = f"%{q}%"
+
+    #Using the same SELECT layout as the Explore Feed so React can render it easily.
+    #The actual search logic will occur via the JOIN clauses at the bottom
+    cursor.execute(
+      """
+      SELECT 
+        t.tweet_id AS feed_id,
+        COALESCE(orig_t.tweet_id, t.tweet_id) AS interactable_tweet_id,
+        COALESCE(orig_t.body, t.body) AS body,
+        COALESCE(orig_t.media_url, t.media_url) AS media_url,
+        t.created_at,
+        COALESCE(orig_u.user_id, u.user_id) AS author_id,
+        COALESCE(orig_u.screen_name, u.screen_name) AS author_screen_name,
+        COALESCE(lc.like_count, 0) AS like_count,
+        EXISTS (
+          SELECT 1 FROM Likes l
+          WHERE l.tweet_id = COALESCE(orig_t.tweet_id, t.tweet_id) AND l.user_id = %s
+        ) AS user_has_liked,
+
+        -- Retweet metadata so React can show the "User Retweeted" label
+        t.is_retweet,
+        u.screen_name AS retweeter_name
+
+      FROM Tweets t
+      JOIN Users u ON t.user_id = u.user_id
+
+      -- THE SELF JOIN: Link the parent tweet back to the Tweets and Users tables
+      LEFT JOIN Tweets orig_t ON t.parent_tweet_id = orig_t.tweet_id
+      LEFT JOIN Users orig_u ON orig_t.user_id = orig_u.user_id
+
+      LEFT JOIN (
+        SELECT tweet_id, COUNT(*) as like_count
+        FROM Likes
+        GROUP BY tweet_id
+      ) lc ON COALESCE(orig_t.tweet_id, t.tweet_id) = lc.tweet_id
+
+      -- Optimized Search Algorithm
+      -- Join the junction table
+      JOIN tweet_hashtags th ON t.tweet_id = th.tweet_id
+      -- Join the master hashtags table
+      JOIN hashtags h ON th.tag_id = h.tag_id
+
+      -- Instant indexed lookup
+      WHERE h.tag_text = %s
+
+      ORDER BY t.created_at DESC
+      LIMIT 50;
+      """,
+      (real_user_id, clean_q)
+    )
+
+    raw_tweets = cursor.fetchall()
+    results = []
+
+    for tweet in raw_tweets:
+      results.append({
+        "feed_id": tweet[0],
+        "tweet_id": tweet[1],
+        "body": tweet[2],
+        "media_url": tweet[3],
+        "created_at": tweet[4],
+        "author_id": tweet[5],
+        "author_screen_name": tweet[6],
+        "like_count": tweet[7],
+        "user_has_liked": tweet[8],
+        "is_retweet": tweet[9],
+        "retweeter_name": tweet[10]
+      })
+    
+    return {"results": results}
+
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
+@router.get("/api/v1/hashtags/suggest", status_code=200)
+def suggest_hashtags(q: str):
+  """Provides autocomplete suggestions for hshtags"""
+  #Strip # if it's included
+  clean_q = q.replace("#", "").lower()
+
+  if len(clean_q) < 1:
+    return {"results": []}
+  
+  conn = get_db_connection()
+  cursor = conn.cursor()
+
+  try:
+    #The % acts as a wildcard at the END of the word.
+    #This matches anything that starts with the user's query.
+    searh_pattern = f"{clean_q}%"
+
+    cursor.execute(
+      """
+      SELECT tag_text
+      FROM hashtags
+      WHERE tag_text ILIKE %s
+      LIMIT 5;
+      """,
+      (searh_pattern,)
+    )
+
+    raw_tags = cursor.fetchall()
+    #Format the response so the frontend knows theses are tags, not users
+    results = [{"type": "hashtag", "text": tag[0]} for tag in raw_tags]
+
+    return {"results": results}
+  
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+  
+  finally:
+    cursor.close()
+    conn.close()
+
 @router.get("/api/v1/tweets/{tweet_id}", status_code=200)
 def get_tweet_thread(tweet_id: int, user_data: dict = Depends(get_optional_user)):
   """Fetches a single main tweet and all of its direct replies."""
