@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from routes import tweets, users
+from routes import tweets, users, hashtags
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Twitter Clone API")
@@ -7,6 +7,7 @@ app = FastAPI(title="Twitter Clone API")
 #Register the routes so the server is aware of them
 app.include_router(tweets.router)
 app.include_router(users.router)
+app.include_router(hashtags.router)
 
 #Add CORS middleware to allow frontend to connect with the backend
 app.add_middleware(

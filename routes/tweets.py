@@ -366,46 +366,6 @@ def search_tweets(q: str, user_data: dict = Depends(get_optional_user)):
     cursor.close()
     conn.close()
 
-@router.get("/api/v1/hashtags/suggest", status_code=200)
-def suggest_hashtags(q: str):
-  """Provides autocomplete suggestions for hshtags"""
-  #Strip # if it's included
-  clean_q = q.replace("#", "").lower()
-
-  if len(clean_q) < 1:
-    return {"results": []}
-  
-  conn = get_db_connection()
-  cursor = conn.cursor()
-
-  try:
-    #The % acts as a wildcard at the END of the word.
-    #This matches anything that starts with the user's query.
-    searh_pattern = f"{clean_q}%"
-
-    cursor.execute(
-      """
-      SELECT tag_text
-      FROM hashtags
-      WHERE tag_text ILIKE %s
-      LIMIT 5;
-      """,
-      (searh_pattern,)
-    )
-
-    raw_tags = cursor.fetchall()
-    #Format the response so the frontend knows theses are tags, not users
-    results = [{"type": "hashtag", "text": tag[0]} for tag in raw_tags]
-
-    return {"results": results}
-  
-  except Exception as e:
-    raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-  
-  finally:
-    cursor.close()
-    conn.close()
-
 @router.get("/api/v1/tweets/{tweet_id}", status_code=200)
 def get_tweet_thread(tweet_id: int, user_data: dict = Depends(get_optional_user)):
   """Fetches a single main tweet and all of its direct replies."""
