@@ -186,7 +186,7 @@ def un_retweet(tweet_id: int, user_token: dict = Depends(verify_user)):
     conn.close()
 
 @router.get("/api/v1/tweets/explore", status_code=200)
-def get_explore_feed(cursor: Optional[int] - None, user_data: dict = Depends(get_optional_user)):
+def get_explore_feed(cursor: Optional[int] = None, user_data: dict = Depends(get_optional_user)):
   """Fetches the 50 most recent tweets globally using cursor-based pagination."""
   real_user_id = user_data.get("uid") if user_data else None
 
