@@ -186,16 +186,16 @@ def un_retweet(tweet_id: int, user_token: dict = Depends(verify_user)):
     conn.close()
 
 @router.get("/api/v1/tweets/explore", status_code=200)
-def get_explore_feed(user_data: dict = Depends(get_optional_user)):
-  """Fetches the 50 most recent tweets globally."""
+def get_explore_feed(cursor: Optional[int] - None, user_data: dict = Depends(get_optional_user)):
+  """Fetches the 50 most recent tweets globally using cursor-based pagination."""
   real_user_id = user_data.get("uid") if user_data else None
 
   conn = get_db_connection()
-  cursor = conn.cursor()
+  db_cursor = conn.cursor()
 
   try:
-    cursor.execute(
-      """
+    # 1.) Base Query setup
+    query = """
       SELECT 
         -- Main ID for React keys, and the interaction ID for liking/retweeting
         t.tweet_id AS feed_id,
@@ -240,11 +240,21 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
 
       ORDER BY t.created_at DESC
       LIMIT 50;
-      """,
-      (real_user_id,)
-    )
+    """
+    
+    query_params = [real_user_id]
 
-    raw_tweets = cursor.fetchall()
+    # 2.) Dynamically inject the cursor condition if one was passed in.
+    if cursor:
+      query += " AND t.tweet_id < %s"
+      query_params.append(cursor)
+
+    # 3.) Order strictly by ID for determnistic pagination
+    query += " ORDER BY t.tweet_id DESC LIMIT 50;"
+
+    db_cursor.execute(query, tuple(query_params))
+
+    raw_tweets = db_cursor.fetchall()
     feed = []
 
     for tweet in raw_tweets:
@@ -261,14 +271,19 @@ def get_explore_feed(user_data: dict = Depends(get_optional_user)):
         "is_retweet": tweet[9],
         "retweeter_name": tweet[10]
       })
+
+      # 4.) Calculate the next cursor token. 
+      # If there are exactly 50 tweets, assume thhere's another page.
+      # The cursor becomes the feed_id (tweet_id) of the very last item.
+      next_cursor = feed[-1]["feed_id"] if len(feed) == 50 else None
     
-    return {"feed": feed}
+    return {"feed": feed, "next_cursor": next_cursor}
 
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
   
   finally:
-    cursor.close()
+    db_cursor.close()
     conn.close()
 
 @router.get("/api/v1/tweets/search", status_code=200)
