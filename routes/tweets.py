@@ -237,9 +237,6 @@ def get_explore_feed(cursor: Optional[int] = None, user_data: dict = Depends(get
 
       -- Only fetch original tweets OR explicit retweets (ignore replies)
       WHERE t.parent_tweet_id IS NULL OR t.is_retweet = TRUE
-
-      ORDER BY t.created_at DESC
-      LIMIT 50;
     """
     
     query_params = [real_user_id]
